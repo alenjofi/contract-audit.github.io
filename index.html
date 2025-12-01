@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,6 +12,9 @@
     
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- jsPDF for PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <!-- Font Preconnect for CLS Optimization -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -353,6 +357,127 @@ Keep it legally sound but remove the predatory language. Ensure mutual rights wh
                 }
             });
             return response.text || "Could not generate rewrite.";
+        };
+
+        // --- PDF GENERATION ---
+        const generatePDF = (data, fileName, contractType) => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const margin = 20;
+            const maxLineWidth = pageWidth - margin * 2;
+            
+            let y = 20;
+
+            // Header
+            doc.setFontSize(22);
+            doc.setTextColor(40, 40, 40);
+            doc.text("Audit Report", margin, y);
+            y += 8;
+
+            doc.setFontSize(12);
+            doc.setTextColor(128, 128, 128); // Gray
+            doc.text(`Fine Print Breaker Analysis`, margin, y);
+            y += 15;
+
+            // Metadata
+            doc.setFontSize(10);
+            doc.setTextColor(60, 60, 60);
+            doc.text(`Date: ${new Date().toLocaleDateString()}`, margin, y);
+            y += 6;
+            doc.text(`File: ${fileName}`, margin, y);
+            y += 6;
+            doc.text(`Contract Type: ${contractType}`, margin, y);
+            y += 15;
+
+            // Score
+            doc.setFontSize(14);
+            doc.setTextColor(0, 0, 0);
+            doc.text(`Risk Score: ${data.risk_score}/100`, margin, y);
+            
+            // Draw score indicator (simple rectangle)
+            const scoreColor = data.risk_score > 70 ? [244, 63, 94] : (data.risk_score > 30 ? [251, 191, 36] : [16, 185, 129]);
+            doc.setFillColor(...scoreColor);
+            doc.rect(margin + 50, y - 5, 20, 5, 'F');
+            y += 15;
+
+            // Summary
+            doc.setFontSize(12);
+            doc.setFont(undefined, 'bold');
+            doc.text("Executive Summary", margin, y);
+            y += 8;
+            doc.setFont(undefined, 'normal');
+            doc.setFontSize(10);
+            const summaryLines = doc.splitTextToSize(data.summary_verdict, maxLineWidth);
+            doc.text(summaryLines, margin, y);
+            y += summaryLines.length * 5 + 10;
+
+            // Risks
+            doc.setFontSize(12);
+            doc.setFont(undefined, 'bold');
+            doc.text(`Identified Risks (${data.critical_warnings.length})`, margin, y);
+            y += 10;
+
+            data.critical_warnings.forEach((item, index) => {
+                // Page break check
+                if (y > 250) {
+                    doc.addPage();
+                    y = 20;
+                }
+
+                // Title
+                doc.setFontSize(11);
+                doc.setFont(undefined, 'bold');
+                const severityText = item.severity;
+                doc.setTextColor(item.severity === 'CRITICAL' ? 220 : 0, 0, 0); // Red if critical
+                doc.text(`${index + 1}. ${item.title} [${severityText}]`, margin, y);
+                y += 6;
+
+                // Description
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'normal');
+                doc.setTextColor(40, 40, 40);
+                const descLines = doc.splitTextToSize(item.description, maxLineWidth);
+                doc.text(descLines, margin, y);
+                y += descLines.length * 5 + 5;
+
+                // Clause
+                doc.setFont(undefined, 'italic');
+                doc.setTextColor(100, 100, 100);
+                doc.setFontSize(9);
+                const clauseLines = doc.splitTextToSize(`"${item.clause_reference}"`, maxLineWidth);
+                doc.text(clauseLines, margin, y);
+                y += clauseLines.length * 4 + 4;
+
+                // ELI5
+                doc.setFont(undefined, 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text("Simply Put:", margin, y);
+                doc.setFont(undefined, 'normal');
+                const eli5Lines = doc.splitTextToSize(item.eli5_explanation, maxLineWidth - 25);
+                doc.text(eli5Lines, margin + 20, y); // Indent
+                y += eli5Lines.length * 4 + 10;
+            });
+
+            // Safe Clauses
+            if (y > 240) {
+                doc.addPage();
+                y = 20;
+            }
+            doc.setFontSize(12);
+            doc.setFont(undefined, 'bold');
+            doc.setTextColor(16, 185, 129); // Emerald
+            doc.text("Safe Clauses Detected", margin, y);
+            y += 8;
+            doc.setFontSize(10);
+            doc.setTextColor(60, 60, 60);
+            doc.setFont(undefined, 'normal');
+            data.safe_clauses.forEach(clause => {
+                doc.text(`• ${clause}`, margin, y);
+                y += 6;
+            });
+
+            doc.save('fine-print-breaker-report.pdf');
         };
 
 
@@ -1029,7 +1154,7 @@ Keep it legally sound but remove the predatory language. Ensure mutual rights wh
         };
 
         // 5. Dashboard
-        const Dashboard = ({ result, reset, triggerToast }) => {
+        const Dashboard = ({ result, fileName, contractType, reset, triggerToast }) => {
             // No locking state anymore - Fully Free
             
             return (
@@ -1077,7 +1202,16 @@ Keep it legally sound but remove the predatory language. Ensure mutual rights wh
                         {/* Right Column */}
                         <div className="md:col-span-8 space-y-6">
                             <div className="glass-panel rounded-xl p-8 border-l-4 border-amber-400">
-                                <h2 className="text-xl font-bold text-white mb-3">Executive Summary</h2>
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+                                    <h2 className="text-xl font-bold text-white">Executive Summary</h2>
+                                    <button
+                                        onClick={() => generatePDF(result, fileName, contractType)}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-900 text-xs font-bold transition-all shadow-lg shadow-amber-500/20"
+                                    >
+                                        <IconDownload className="w-4 h-4" />
+                                        Download Full Report
+                                    </button>
+                                </div>
                                 <p className="text-slate-300 leading-relaxed">
                                 {result.summary_verdict}
                                 </p>
@@ -1324,7 +1458,7 @@ Keep it legally sound but remove the predatory language. Ensure mutual rights wh
                                         New Scan
                                     </button>
                                 </div>
-                                <Dashboard result={result} reset={reset} triggerToast={triggerToast} />
+                                <Dashboard result={result} fileName={fileName} contractType={contractType} reset={reset} triggerToast={triggerToast} />
                             </div>
                         )}
 
