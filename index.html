@@ -210,6 +210,30 @@
         const IconDownload = ({ className }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
         );
+        const IconSparkles = ({ className }) => (
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 3v4"/><path d="M3 5h4"/><path d="M3 9h4"/></svg>
+        );
+
+
+        // --- CONSTANTS ---
+        const SAMPLE_CONTRACT_TEXT = `
+INDEPENDENT CONTRACTOR AGREEMENT (PREDATORY SAMPLE)
+
+1. TERM AND TERMINATION
+This Agreement shall commence on the Effective Date and continue indefinitely. The Client may terminate this Agreement at any time, for any reason or no reason ("At Will"), immediately upon written notice to the Contractor. The Contractor must provide 60 days' written notice to terminate. No severance or notice pay shall be provided to Contractor.
+
+2. EXCLUSIVITY AND NON-COMPETE
+During the term of this Agreement and for a period of twenty-four (24) months following its termination, Contractor agrees not to engage in any employment, consulting, or other business activity that competes with the Client's business, worldwide.
+
+3. INTELLECTUAL PROPERTY
+Contractor agrees that all work product, including but not limited to notes, records, drawings, designs, inventions, improvements, developments, and trade secrets conceived, made, or discovered by Contractor, solely or in collaboration with others, during the term of this Agreement, whether or not directly related to the Client's business, shall be the sole and exclusive property of the Client. This includes personal side projects developed on Contractor's own time and equipment.
+
+4. PAYMENT TERMS
+Client shall pay Contractor within ninety (90) days of receipt of a valid invoice (Net 90). Client reserves the right to deduct a 5% administrative processing fee from all invoices.
+
+5. INDEMNIFICATION
+Contractor agrees to indemnify, defend, and hold harmless the Client from and against any and all claims, demands, liabilities, costs, or expenses, including attorney's fees, arising out of or related to the performance of services under this Agreement, regardless of whether such claims are caused in whole or in part by the negligence of the Client.
+`;
 
 
         // --- SERVICES ---
@@ -239,7 +263,11 @@ Keep the rebuttal under 100 words.
 Focus on mutual fairness.
 `;
 
-        // API KEY from previous context
+        const REWRITE_INSTRUCTION = `
+You are a fair contract lawyer. Rewrite the following one-sided or unfair clause to be balanced, standard, and fair to both parties. 
+Keep it legally sound but remove the predatory language. Ensure mutual rights where applicable.
+`;
+
         const GOOGLE_API_KEY = "AIzaSyDcsfpeuXKVBY5egKAGG_jQEtjs6GNm_yg";
         const ai = new GoogleGenAI({ apiKey: GOOGLE_API_KEY });
 
@@ -314,8 +342,31 @@ Focus on mutual fairness.
             return response.text || "Could not generate rebuttal.";
         };
 
+        const rewriteClause = async (clauseText) => {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: {
+                    parts: [{ text: `Rewrite this clause to be fair and mutual: "${clauseText}"` }]
+                },
+                config: {
+                    systemInstruction: REWRITE_INSTRUCTION,
+                }
+            });
+            return response.text || "Could not generate rewrite.";
+        };
+
 
         // --- COMPONENTS ---
+
+        // Toast Component
+        const Toast = ({ message, show }) => (
+            <div className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 transition-all duration-300 ${show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+                <div className="bg-slate-900 text-slate-200 px-4 py-2 rounded-lg shadow-2xl border border-slate-700 flex items-center gap-2 text-sm font-medium">
+                     <IconCheck className="w-4 h-4 text-emerald-500" />
+                     {message}
+                </div>
+            </div>
+        );
 
         // 1. Contract Type Selector
         const ContractTypeSelector = ({ selected, onSelect }) => {
@@ -387,7 +438,7 @@ Focus on mutual fairness.
         };
 
         // 2. File Upload
-        const FileUpload = ({ onFileSelect, isAnalyzing, contractType, setContractType }) => {
+        const FileUpload = ({ onFileSelect, isAnalyzing, contractType, setContractType, onLoadSample }) => {
             const [dragActive, setDragActive] = useState(false);
             const [status, setStatus] = useState('idle');
             const [progress, setProgress] = useState(0);
@@ -688,6 +739,23 @@ Focus on mutual fairness.
                             disabled={!isAgreed}
                         />
                     </div>
+
+                    {/* Load Sample Button */}
+                    <div className="flex justify-center pt-2">
+                         <button
+                            type="button"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                onLoadSample();
+                            }}
+                            className="group inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-amber-400 transition-colors p-2 rounded-lg hover:bg-slate-900/50"
+                        >
+                            <IconSparkles className="w-3.5 h-3.5" />
+                            <span>Don't have a file?</span>
+                            <span className="underline decoration-slate-700 underline-offset-2 group-hover:decoration-amber-500/50">Try with Sample Contract</span>
+                        </button>
+                    </div>
+
                 </div>
             );
         };
@@ -756,11 +824,16 @@ Focus on mutual fairness.
         };
 
         // 4. Risk Card
-        const RiskCard = ({ item }) => {
+        const RiskCard = ({ item, triggerToast }) => {
             const [expanded, setExpanded] = useState(false);
             const [rebuttal, setRebuttal] = useState(null);
             const [isGenerating, setIsGenerating] = useState(false);
             const [copied, setCopied] = useState(false);
+
+            // Rewrite State
+            const [rewritten, setRewritten] = useState(null);
+            const [isRewriting, setIsRewriting] = useState(false);
+            const [rewriteCopied, setRewriteCopied] = useState(false);
 
             const handleGenerateRebuttal = async (e) => {
                 e.stopPropagation();
@@ -781,11 +854,39 @@ Focus on mutual fairness.
                 }
             };
 
+            const handleRewrite = async (e) => {
+                e.stopPropagation();
+                if (rewritten) {
+                    setExpanded(true);
+                    return;
+                }
+                setExpanded(true);
+                setIsRewriting(true);
+                try {
+                    const text = await rewriteClause(item.clause_reference);
+                    setRewritten(text);
+                } catch (error) {
+                    setRewritten("Error generating rewrite.");
+                } finally {
+                    setIsRewriting(false);
+                }
+            };
+
             const copyToClipboard = () => {
                 if (rebuttal) {
                     navigator.clipboard.writeText(rebuttal);
                     setCopied(true);
+                    triggerToast("Copied to clipboard");
                     setTimeout(() => setCopied(false), 2000);
+                }
+            };
+
+            const copyRewrite = () => {
+                if (rewritten) {
+                    navigator.clipboard.writeText(rewritten);
+                    setRewriteCopied(true);
+                    triggerToast("Fair clause copied");
+                    setTimeout(() => setRewriteCopied(false), 2000);
                 }
             };
 
@@ -813,13 +914,22 @@ Focus on mutual fairness.
                                     </div>
                                     <h4 className="font-semibold text-slate-100 text-lg leading-tight">{item.title}</h4>
                                 </div>
-                                <button
-                                    onClick={handleGenerateRebuttal}
-                                    className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-600/20 hover:text-amber-400 border border-slate-700 hover:border-amber-500/30 text-xs font-medium text-slate-300 transition-all"
-                                >
-                                    {isGenerating ? <IconLoader2 className="w-3.5 h-3.5 animate-spin" /> : <IconMessageSquare className="w-3.5 h-3.5" />}
-                                    <span>{isGenerating ? 'Drafting...' : 'Generate Rebuttal'}</span>
-                                </button>
+                                <div className="hidden sm:flex items-center gap-2">
+                                    <button
+                                        onClick={handleGenerateRebuttal}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-amber-600/20 hover:text-amber-400 border border-slate-700 hover:border-amber-500/30 text-xs font-medium text-slate-300 transition-all"
+                                    >
+                                        {isGenerating ? <IconLoader2 className="w-3.5 h-3.5 animate-spin" /> : <IconMessageSquare className="w-3.5 h-3.5" />}
+                                        <span>{isGenerating ? 'Drafting...' : 'Generate Rebuttal'}</span>
+                                    </button>
+                                     <button
+                                        onClick={handleRewrite}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600/20 hover:text-emerald-400 border border-slate-700 hover:border-emerald-500/30 text-xs font-medium text-slate-300 transition-all"
+                                    >
+                                        {isRewriting ? <IconLoader2 className="w-3.5 h-3.5 animate-spin" /> : <IconSparkles className="w-3.5 h-3.5" />}
+                                        <span>{isRewriting ? 'Rewriting...' : 'Rewrite Clause'}</span>
+                                    </button>
+                                </div>
                             </div>
                             
                             <p className="mt-2 text-slate-400 text-sm leading-relaxed">
@@ -834,12 +944,20 @@ Focus on mutual fairness.
                                 {expanded ? <IconChevronUp className="h-3.5 w-3.5 mr-1.5"/> : <IconChevronDown className="h-3.5 w-3.5 mr-1.5"/>}
                                 {expanded ? "Hide Details" : "Expand Details"}
                                 </button>
-                                <button
-                                    onClick={handleGenerateRebuttal}
-                                    className="sm:hidden flex items-center gap-1.5 text-xs font-medium text-amber-500"
-                                >
-                                    {isGenerating ? 'Drafting...' : 'Generate Rebuttal'}
-                                </button>
+                                <div className="sm:hidden flex gap-3">
+                                    <button
+                                        onClick={handleGenerateRebuttal}
+                                        className="flex items-center gap-1.5 text-xs font-medium text-amber-500"
+                                    >
+                                        {isGenerating ? 'Drafting...' : 'Rebuttal'}
+                                    </button>
+                                     <button
+                                        onClick={handleRewrite}
+                                        className="flex items-center gap-1.5 text-xs font-medium text-emerald-500"
+                                    >
+                                        {isRewriting ? 'Rewriting...' : 'Rewrite'}
+                                    </button>
+                                </div>
                             </div>
 
                             {expanded && (
@@ -852,6 +970,32 @@ Focus on mutual fairness.
                                         <p className="text-[10px] text-amber-500 uppercase font-bold tracking-wider mb-2">Explain Like I'm 5</p>
                                         <p className="text-sm text-slate-200 leading-relaxed">{item.eli5_explanation}</p>
                                     </div>
+
+                                    {(rewritten || isRewriting) && (
+                                        <div className="p-4 bg-emerald-950/20 rounded border border-emerald-500/20 relative">
+                                            <p className="text-[10px] text-emerald-400 uppercase font-bold tracking-wider mb-2 flex items-center gap-2">
+                                                <IconSparkles className="w-3 h-3" />
+                                                Fair & Mutual Version
+                                            </p>
+                                            {isRewriting ? (
+                                                <div className="space-y-2">
+                                                    <div className="h-3 bg-slate-700/50 rounded w-3/4 animate-pulse"></div>
+                                                    <div className="h-3 bg-slate-700/50 rounded w-full animate-pulse"></div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-line">{rewritten}</p>
+                                                    <button 
+                                                        onClick={copyRewrite}
+                                                        className="absolute top-3 right-3 p-1.5 text-slate-400 hover:text-white hover:bg-emerald-900/50 rounded-md transition-colors"
+                                                        title="Copy to clipboard"
+                                                    >
+                                                        {rewriteCopied ? <IconCheck className="w-4 h-4 text-emerald-500" /> : <IconCopy className="w-4 h-4" />}
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {(rebuttal || isGenerating) && (
                                         <div className="p-4 bg-slate-800/50 rounded border border-slate-700 relative">
@@ -885,7 +1029,7 @@ Focus on mutual fairness.
         };
 
         // 5. Dashboard
-        const Dashboard = ({ result, reset }) => {
+        const Dashboard = ({ result, reset, triggerToast }) => {
             // No locking state anymore - Fully Free
             
             return (
@@ -950,7 +1094,7 @@ Focus on mutual fairness.
 
                             <div className="space-y-4">
                                 {result.critical_warnings.map((risk, idx) => (
-                                <RiskCard key={idx} item={risk} />
+                                <RiskCard key={idx} item={risk} triggerToast={triggerToast} />
                                 ))}
 
                                 {result.critical_warnings.length === 0 && (
@@ -974,6 +1118,14 @@ Focus on mutual fairness.
             const [fileName, setFileName] = useState('');
             const [errorMsg, setErrorMsg] = useState('');
             const [contractType, setContractType] = useState('Freelance'); // Default
+            const [toast, setToast] = useState({ show: false, message: '' });
+
+            const triggerToast = (msg) => {
+                setToast({ show: true, message: msg });
+                setTimeout(() => {
+                    setToast({ show: false, message: '' });
+                }, 2000);
+            };
 
             const handleFileSelect = async (file) => {
                 // Instantly analyzing
@@ -1006,6 +1158,25 @@ Focus on mutual fairness.
                     };
                 } catch (err) {
                     setErrorMsg("An unexpected error occurred.");
+                    setState('ERROR');
+                }
+            };
+
+            const handleLoadSample = async () => {
+                setState('ANALYZING');
+                setFileName("predatory_contract_sample.txt");
+                setContractType('Freelance');
+                setErrorMsg('');
+
+                try {
+                    // Convert sample text to base64
+                    const base64Data = btoa(SAMPLE_CONTRACT_TEXT);
+                    const analysis = await analyzeContract(base64Data, 'text/plain', 'Freelance');
+                    setResult(analysis);
+                    setState('RESULTS');
+                } catch (e) {
+                    console.error(e);
+                    setErrorMsg("Sample analysis failed. Please try again.");
                     setState('ERROR');
                 }
             };
@@ -1068,6 +1239,7 @@ Focus on mutual fairness.
                                     isAnalyzing={false} 
                                     contractType={contractType}
                                     setContractType={setContractType}
+                                    onLoadSample={handleLoadSample}
                                 />
                                 
                                 <div className="pt-8 border-t border-slate-900 w-full max-w-4xl text-center">
@@ -1152,9 +1324,12 @@ Focus on mutual fairness.
                                         New Scan
                                     </button>
                                 </div>
-                                <Dashboard result={result} reset={reset} />
+                                <Dashboard result={result} reset={reset} triggerToast={triggerToast} />
                             </div>
                         )}
+
+                        {/* Toast Notification */}
+                        <Toast message={toast.message} show={toast.show} />
 
                     </main>
                     
